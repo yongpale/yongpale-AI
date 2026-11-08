@@ -107,3 +107,40 @@ python3 scripts/preprocess_policies.py       # 후보 선정 (API 호출 없음)
 ## 참고
 - 입증서류 데이터의 기준연도(base_year)는 2020년입니다. 화면에 기준일을 함께 표시해 주세요.
 - 원본 텍스트는 요약·챗봇 근거로 쓰므로 수정하지 말아 주세요.
+
+## 조건 추출·검토 (extract_policy_conditions.py → build_policies.py)
+```bash
+python3 scripts/extract_policy_conditions.py   # Gemini로 후보별 매칭 조건 추출 → review/policy_review.csv
+python3 scripts/build_policies.py              # 검토한 policy_review.csv 의 include=Y 만 policies.json 으로
+```
+추출 캐시(`interim/`)와 검토 표(`review/`)는 작업용이라 저장소에 올리지 않습니다. 개발에는 `processed/policies.json`만 사용하면 됩니다.
+
+## 검토 결과 (2026-11-08, 후보 170건 → 36건)
+- 기준: 용인시에 사는 초등 자녀 가구가 직접 신청·이용할 수 있는 **돌봄·방과후·교육비** 정책
+- 제외
+  - 기관·시설 운영 지원 (예: 청소년복지시설 운영 지원, 정신건강복지센터 운영 지원)
+  - 성인·특정 집단 전용 (예: 국가보훈대상자 주택우선공급, 군인 재해보상 유족급여, 누구나 돌봄)
+  - 견학·체험관 등 단발성 프로그램 (예: 한국잡월드 입장료, 어린이 교통안전체험관)
+  - 학교 단위로 선정되는 사업 (예: 교육복지우선지원, 초등학생 승강기 안전교육)
+  - 용인시가 참여하지 않는 사업 (예: 다자녀가정 아이돌봄 본인부담금, 14개 시·군만 참여)
+  - 신청이 필요 없는 보편 지원 (예: 학교급식경비 지원)
+- 범위 밖이라 제외했지만 초등 자녀 가구와 관련 있는 정책: 경기도 어린이청소년 교통비 지원, 아동수당, 12세 이하 어린이 국가예방접종, 인플루엔자 국가예방접종, 아동 입원진료비 지원, 발달재활서비스 바우처, 언어발달지원, 위(Wee) 클래스 상담, 학교급식비 지원. 필요하면 추가할 수 있습니다.
+- 추출 값을 직접 고친 것
+  - 아이돌봄 서비스: other_requirements에 "양육 공백 가정(맞벌이·한부모·장애부모·다자녀 등)이면 소득에 따라 정부 지원" 추가. 맞벌이·한부모·다자녀는 지원 사유 중 하나라 preferred 유지
+  - 결식아동급식지원: category 건강·의료 → 돌봄
+  - 스포츠 강좌 이용권 지원: category 교육비 → 방과후·학습
+  - 탈북청소년 및 북한이탈주민 자녀 화상영어 지원: 학년 1~6 → 3~6 (만 9세 이상)
+  - 장애인활동지원급여지원(경기도), 국가보훈대상자 보훈장학금 지원, 다문화가족 방문교육서비스: other_requirements를 원문에 맞게 정리
+
+## 필드 설명 (processed/policies.json)
+policy_candidates.json 필드에 `match`가 추가됩니다.
+
+| 필드 | 설명 |
+|---|---|
+| match.category | 돌봄 / 방과후·학습 / 교육비 |
+| match.grade_min, grade_max | 대상 초등 학년 (1~6) |
+| match.dual_income, single_parent, multi_child | 맞벌이 / 한부모·조손 / 다자녀. `required` = 그 가구만 대상, `preferred` = 우선 선정·추가 지원 또는 지원 사유 중 하나, `not_mentioned` = 조건 없음 |
+| match.low_income_only | 저소득 가구만 대상이면 true |
+| match.income_limit | 소득 기준 문구 (원문 요약) |
+| match.other_requirements | 그 밖의 필수 조건 (다문화가족, 특수교육대상자, 거주 기간 등) |
+| match.apply_period | 신청 기간 문구 |
