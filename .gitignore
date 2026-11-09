@@ -7,3 +7,5 @@ __pycache__/
 CLAUDE.md
 data/interim/
 data/review/
+data/cache/
+.pytest_cache/

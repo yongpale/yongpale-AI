@@ -3,3 +3,7 @@ python-dotenv
 pandas
 openpyxl
 google-genai
+fastapi
+uvicorn[standard]
+pytest
+httpx
