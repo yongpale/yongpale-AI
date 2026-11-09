@@ -63,6 +63,7 @@ def match_from_row(row):
         "income_limit": to_text(row["income_limit"]),
         "other_requirements": [x.strip() for x in (row["other_requirements"] or "").split(" / ") if x.strip()],
         "apply_period": to_text(row["apply_period"]),
+        "notes": to_text(row.get("notes")),
     }
 
 
