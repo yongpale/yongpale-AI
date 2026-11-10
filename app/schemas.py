@@ -202,3 +202,57 @@ class CareGapResponse(BaseModel):
     plans: List[CareGapPlan]
     related_policies: List[RelatedPolicy] = Field(..., description="남는 공백을 채울 수 있는 돌봄 정책")
     notes: List[str]
+
+
+# ---------------------------------------------------------------------------
+# AI 돌봄·배움 챗봇
+# ---------------------------------------------------------------------------
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(..., max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500, examples=["아이돌봄 서비스는 어디서 신청하고 서류는 뭐가 필요해요?"])
+    profile: Optional[Profile] = None
+    history: List[ChatTurn] = Field(default_factory=list, description="이전 대화 (최근 4턴만 사용)")
+    user_name: Optional[str] = Field(None, max_length=20, description="답변에서 부를 이름 (예: 김용인)")
+
+
+class ChatItem(BaseModel):
+    title: str = Field(..., description="번호 목록 제목 (예: 신청처, 제출 서류, 접수 기간)")
+    text: str
+
+
+class ChatSource(BaseModel):
+    type: Literal["policy", "facility"]
+    id: str
+    title: str = Field(..., description="정책명 또는 시설명")
+    name: Optional[str] = Field(None, description="출처 기관·데이터 이름")
+    url: Optional[str] = None
+    updated_at: Optional[str] = Field(None, description="정보 기준일")
+
+
+class ChatPolicyLink(BaseModel):
+    id: str
+    name: str
+    status: Optional[Status] = Field(None, description="프로필이 있을 때 판정")
+
+
+class ChatFacilityLink(BaseModel):
+    id: str
+    name: str
+
+
+class ChatResponse(BaseModel):
+    answer_id: str = Field(..., description="답변 ID (도움됨/아님 피드백 저장용)")
+    profile_label: Optional[str] = Field(None, description="'초1 · 기흥구 구갈동 · 맞벌이'")
+    grounded: bool = Field(..., description="false면 '근거 없음' 배지")
+    generated: bool = Field(..., description="false면 Gemini 없이 만든 답변 (근거 없음 또는 자료 목록)")
+    intro: str
+    items: List[ChatItem] = Field(..., description="번호 목록 (없으면 빈 배열)")
+    sources: List[ChatSource] = Field(..., description="근거 출처")
+    related_policies: List[ChatPolicyLink] = Field(..., description="관련 정책 바로가기")
+    related_facilities: List[ChatFacilityLink]
+    suggested_questions: List[str] = Field(..., description="추천 질문")

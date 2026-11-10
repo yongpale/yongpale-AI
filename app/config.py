@@ -19,6 +19,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 # 실시간 응답용 (맞춤 팁 등)
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.5-flash-lite")
+# 챗봇 검색용 임베딩
+GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+EMBEDDING_DIM = 768
 # 0이면 Gemini를 호출하지 않고 대체 응답만 사용 (테스트, 한도 소진 시)
 GEMINI_ENABLED = os.getenv("GEMINI_ENABLED", "1") != "0" and bool(GEMINI_API_KEY)
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "15"))

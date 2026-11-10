@@ -53,7 +53,14 @@ def load_policy_summaries():
     return _read("policy_summaries.json", default={})
 
 
+@lru_cache()
+def load_embeddings():
+    """챗봇 검색용 임베딩 (embeddings.json). 없으면 빈 dict → 키워드 검색으로 대체"""
+    return _read("embeddings.json", default={})
+
+
 def clear_cache():
     """데이터 파일을 바꾼 뒤 서버를 끄지 않고 다시 읽을 때"""
-    for fn in (load_policies, load_policy_map, load_facilities, load_childcare_documents, load_policy_summaries):
+    for fn in (load_policies, load_policy_map, load_facilities, load_childcare_documents, load_policy_summaries,
+               load_embeddings):
         fn.cache_clear()
