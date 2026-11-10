@@ -177,10 +177,12 @@ def test_care_gap_uses_youngest_child_by_default():
     assert client.post("/ai/care-gap", json={"profile": profile, "child_index": 5}).status_code == 422
 
 
-def test_care_gap_requires_care_time():
+def test_care_gap_without_care_time_uses_default():
+    # 백엔드 가구 정보에 돌봄 필요 시간이 없을 때
     profile = {k: v for k, v in DUAL_INCOME_GRADE1.items() if k != "care_time"}
-    res = client.post("/ai/care-gap", json={"profile": profile})
-    assert res.status_code == 422
+    body = client.post("/ai/care-gap", json={"profile": profile}).json()
+    assert body["care_time"] == {"start": "13:00", "end": "18:00", "minutes": 300}
+    assert any("돌봄 필요 시간 정보가 없어" in n for n in body["notes"])
 
 
 # ---------------------------------------------------------------------------
@@ -234,3 +236,13 @@ def test_kindergarten_only_household():
 def test_unknown_grade_label_rejected():
     profile = {**DUAL_INCOME_GRADE1, "children": [{"grade": "중1"}]}
     assert client.post("/ai/policies/match", json={"profile": profile}).status_code == 422
+
+
+def test_summary_lookup_by_backend_fields():
+    # 백엔드 policies에는 서비스ID가 없고 source_url, title만 있다
+    url = "https://plus.gov.kr/portal/benefitV2/benefitTotalSrvcList/benefitSrvcDtl?svcSeq=746602&bnefType=all&svcId=423000000362"
+    for body in ({"source_url": url}, {"title": "아이돌봄 서비스"}, {"title": "아이돌봄서비스"}, {"policy_id": CHILDCARE_ID}):
+        res = client.post("/ai/policies/summary", json=body)
+        assert res.status_code == 200 and res.json()["policy_id"] == CHILDCARE_ID
+    assert client.post("/ai/policies/summary", json={"title": "없는 정책"}).status_code == 404
+    assert client.post("/ai/policies/summary", json={}).status_code == 422

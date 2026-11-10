@@ -6,7 +6,7 @@
 | 기능 | 엔드포인트 | Gemini 사용 |
 |---|---|---|
 | F-003 맞춤형 정책 추천 | `POST /ai/policies/match` | 사용 안 함 (규칙 기반) |
-| F-004 정책 요약·맞춤 팁 | `POST /ai/policies/{policy_id}/summary` | 4항목 요약은 미리 생성, 맞춤 팁만 실시간 |
+| F-004 정책 요약·맞춤 팁 | `POST /ai/policies/{policy_id}/summary` 또는 `POST /ai/policies/summary` | 4항목 요약은 미리 생성, 맞춤 팁만 실시간 |
 | F-009 돌봄 공백 분석 | `POST /ai/care-gap` | 사용 안 함 (규칙 기반) |
 | AI 돌봄·배움 챗봇 | `POST /ai/chat` | 질문마다 검색 임베딩 1회 + 답변 생성 1회 |
 | 상태 확인 | `GET /health` | |
@@ -95,6 +95,9 @@ tests/
 
 `POST /ai/policies/{policy_id}/summary`  `{"profile": {...}}` (profile은 선택)
 
+정부24 서비스ID가 없으면 백엔드 `policies`의 값으로 찾을 수 있습니다.
+`POST /ai/policies/summary`  `{"source_url": "...svcId=423000000362", "profile": {...}}` 또는 `{"title": "아이돌봄 서비스", ...}`
+
 - `summary`: 신청 자격 / 지원 혜택 / 필요 서류 / 신청 기간. `evidence`는 근거가 된 원문 항목
   - `scripts/generate_policy_summaries.py`로 미리 만든 `data/processed/policy_summaries.json`을 사용
   - 요약이 없거나 원문이 바뀐 정책은 원문 발췌로 대신하고 `summary_generated: false`
@@ -109,6 +112,7 @@ tests/
 
 - 자녀가 여러 명이면 `child_index`(children 순서, 0부터)로 고르고, 없으면 학년이 가장 낮은 자녀를 분석합니다 (`child`).
 - 공백 = 돌봄 필요 시간(care_time) - 학교에 있는 시간. 방학(`vacation`)은 필요 시간 전체
+- 돌봄 필요 시간이 없으면 하교 시간(방학은 09:00)~18:00으로 계산하고 `notes`에 알립니다
 - 하교 시간을 안 주면 학년별 기본값(초1·2 13:00, 초3·4 14:30, 초5·6 15:00)
 - `plans`: 한 곳 또는 두 곳을 이어서 이용하는 시설 조합. 남는 공백이 적은 순, 가까운 순(같은 동 > 같은 구), 이용료 순
 - `related_policies`: 시설로 못 채우는 공백에 이용할 수 있는 돌봄 서비스 (아이돌봄 서비스 등)
@@ -147,7 +151,10 @@ tests/
 ## 백엔드 연동 시 맞출 것
 
 - **정책 ID**: AI API의 정책 id는 정부24 서비스ID(`policies.json`의 `id`, 예: `423000000362`)입니다.
-  백엔드 `policies` 테이블에 이 값을 저장해야 요약 API 호출과 추천 결과 연결이 됩니다.
+  백엔드 `policies`에는 이 값이 없으므로 다음처럼 연결합니다.
+  - 요약: `POST /ai/policies/summary`에 `source_url`(svcId 포함) 또는 `title`
+  - 추천 결과: 응답의 `source.url` 또는 `name`을 백엔드 `policies.source_url` / `title`과 맞춰 연결 (36건 모두 고유)
+  - 챗봇 `related_policies`·`sources`도 같은 방식 (`sources[].url`, `name`)
 - **챗봇 저장**: `grounded` → `chat_messages.answerable`, `sources` → `citations`, `model` → `model_name`.
   도움됨/아님 피드백은 백엔드가 `answer_id` 또는 메시지 ID로 저장합니다.
 - **RAG**: 검색·임베딩은 AI 서버가 직접 합니다. 백엔드 `knowledge_documents`, `document_chunks`는 채우지 않아도 됩니다.

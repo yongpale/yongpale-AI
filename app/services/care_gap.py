@@ -11,6 +11,8 @@ from app import data_loader
 from app.services.matching import evaluate
 from app.services.regions import same_dong
 
+# 돌봄 필요 시간을 받지 못했을 때 끝 시간 기본값 (가족 정보 화면 예시값)
+DEFAULT_CARE_END = "18:00"
 # 학기 중 학년별 하교 시간 기본값 (학교·요일마다 다름)
 DEFAULT_SCHOOL_END = {1: "13:00", 2: "13:00", 3: "14:30", 4: "14:30", 5: "15:00", 6: "15:00"}
 PERIOD_LABEL = {"semester": "학기 중", "vacation": "방학 중"}
@@ -177,13 +179,17 @@ def analyze(profile, period="semester", school_end=None, care_time=None, max_res
         raise ValueError("돌봄 공백 분석은 초등학생 자녀만 할 수 있습니다 (시설 데이터가 초등 대상)")
     grade = child.grade
     care_time = care_time or profile.care_time
+    notes = []
     if care_time is None:
-        raise ValueError("돌봄이 필요한 시간(care_time)이 없습니다")
-    need = (to_min(care_time.start), to_min(care_time.end))
+        # 돌봄 필요 시간이 없으면 하교(방학은 09:00)부터 18:00까지로 계산
+        start = (school_end or DEFAULT_SCHOOL_END[grade]) if period == "semester" else "09:00"
+        need = (to_min(start), to_min(DEFAULT_CARE_END))
+        notes.append(f"돌봄 필요 시간 정보가 없어 {start}~{DEFAULT_CARE_END}로 계산했어요.")
+    else:
+        need = (to_min(care_time.start), to_min(care_time.end))
     if need[0] >= need[1]:
         raise ValueError("care_time의 end가 start보다 늦어야 합니다")
 
-    notes = []
     if period == "semester":
         school_end = school_end or DEFAULT_SCHOOL_END[grade]
         if school_end == DEFAULT_SCHOOL_END[grade]:

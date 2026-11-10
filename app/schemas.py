@@ -191,6 +191,20 @@ class SummaryRequest(BaseModel):
     profile: Optional[Profile] = None
 
 
+class SummaryLookupRequest(BaseModel):
+    """정책 ID 대신 백엔드가 가진 값으로 찾기: policy_id, source_url, title 중 하나"""
+    policy_id: Optional[str] = Field(None, description="정부24 서비스ID")
+    source_url: Optional[str] = Field(None, description="백엔드 policies.source_url (svcId 포함)")
+    title: Optional[str] = Field(None, description="백엔드 policies.title")
+    profile: Optional[Profile] = None
+
+    @model_validator(mode="after")
+    def _need_one(self):
+        if not (self.policy_id or self.source_url or self.title):
+            raise ValueError("policy_id, source_url, title 중 하나는 있어야 합니다")
+        return self
+
+
 class SummaryResponse(BaseModel):
     policy_id: str
     name: str

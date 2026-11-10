@@ -18,6 +18,7 @@ from app.schemas import (
     ChatResponse,
     MatchRequest,
     MatchResponse,
+    SummaryLookupRequest,
     SummaryRequest,
     SummaryResponse,
 )
@@ -51,6 +52,15 @@ def health():
 def match_policies(req: MatchRequest):
     """프로필에 맞는 정책 목록과 적합도 점수 (규칙 기반, Gemini 호출 없음)"""
     return matching.match_policies(req.profile, req.include_ineligible, req.limit)
+
+
+@app.post("/ai/policies/summary", response_model=SummaryResponse, tags=["F-004 정책 요약"])
+def policy_summary_lookup(req: SummaryLookupRequest):
+    """정책 ID 대신 백엔드 policies의 source_url 또는 title로 요약 받기"""
+    policy = data_loader.find_policy(req.policy_id, req.source_url, req.title)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="정책을 찾을 수 없습니다")
+    return summary.get_summary(policy["id"], req.profile)
 
 
 @app.post("/ai/policies/{policy_id}/summary", response_model=SummaryResponse, tags=["F-004 정책 요약"])

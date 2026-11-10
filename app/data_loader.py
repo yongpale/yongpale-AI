@@ -5,6 +5,7 @@
 """
 
 import json
+import re
 from functools import lru_cache
 
 from app.config import PROCESSED_DIR
@@ -33,6 +34,25 @@ def load_policy_map():
 
 def get_policy(policy_id):
     return load_policy_map().get(policy_id)
+
+
+def find_policy(policy_id=None, source_url=None, title=None):
+    """정부24 서비스ID, 원문 URL, 정책명 중 하나로 정책을 찾는다.
+
+    백엔드 policies 테이블에는 서비스ID가 없지만 source_url(…&svcId=서비스ID)과 title이 있어서
+    백엔드가 가진 값만으로 찾을 수 있게 한다.
+    """
+    if policy_id:
+        return get_policy(policy_id)
+    if source_url:
+        m = re.search(r"svcId=([^&#]+)", source_url)
+        if m and get_policy(m.group(1)):
+            return get_policy(m.group(1))
+        return next((p for p in load_policies() if p["source"].get("url") == source_url), None)
+    if title:
+        key = re.sub(r"\s+", "", title)
+        return next((p for p in load_policies() if re.sub(r"\s+", "", p["name"]) == key), None)
+    return None
 
 
 @lru_cache()
