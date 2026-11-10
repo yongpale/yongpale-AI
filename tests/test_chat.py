@@ -5,7 +5,7 @@ from app.services import chat, gemini
 
 client = TestClient(app)
 
-PROFILE = {"gu": "기흥구", "dong": "구갈동", "grade": 1, "dual_income": True}
+PROFILE = {"gu": "기흥구", "dong": "구갈동", "dual_income": True, "children": [{"grade": 1}]}
 CHILDCARE_DOC = "policy:423000000362"  # 아이돌봄 서비스
 AFTER_SCHOOL_DOC = "policy:GES000000150"  # 방과후학교 자유수강권 (저소득 대상)
 

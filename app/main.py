@@ -66,7 +66,9 @@ def policy_summary(policy_id: str, req: SummaryRequest = None):
 def analyze_care_gap(req: CareGapRequest):
     """돌봄 공백 시간 계산 + 시설 조합 추천 + 추천 이유 (규칙 기반, Gemini 호출 없음)"""
     try:
-        return care_gap.analyze(req.profile, req.period, req.school_end, req.care_time, req.max_results)
+        return care_gap.analyze(
+            req.profile, req.period, req.school_end, req.care_time, req.max_results, req.child_index
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

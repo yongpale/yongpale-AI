@@ -51,6 +51,7 @@ PROMPT = """너는 용인시 초등학생 자녀를 둔 부모를 돕는 '아이
 - [자료]에서 질문에 대한 근거를 찾을 수 없으면 grounded=false로 하고 intro, items는 비워라.
   질문이 틀린 전제를 담고 있어도(예: 자료에 없는 수당) grounded=false로 해라.
 - 시설 자료의 '정보 없음'은 운영하지 않는다는 뜻이 아니다. "정보가 없어 시설에 확인이 필요해요"라고 답해라.
+- 이 서비스는 가구 소득과 다문화·장애 등 특정 가구 여부를 입력받지 않는다.
 - 정책 자료의 [이 가구 판정]을 반영해라.
   '조건 확인 필요'인 정책은 "신청할 수 있다"고 단정하지 말고, 그 정책 설명에 확인할 조건(소득 기준 등)을 함께 써라.
   '해당 안 됨'인 정책은 이 가구가 대상이 아니라고 알려줘라.
@@ -72,7 +73,7 @@ def profile_label(profile):
     """'초1 · 기흥구 구갈동 · 맞벌이'"""
     if profile is None:
         return None
-    parts = [f"초{profile.grade}"]
+    parts = ["·".join(f"초{c.grade}" for c in profile.children)]
     if profile.gu:
         parts.append(" ".join(x for x in (profile.gu, profile.dong) if x))
     parts += [label for field, label in HOUSEHOLD_FLAGS if getattr(profile, field)]
@@ -93,7 +94,7 @@ def _rerank(results, profile):
                 score += 0.015
         else:
             policy = data_loader.get_policy(doc["ref_id"])
-            if policy and evaluate(policy, profile)[0] == "ineligible":
+            if policy and evaluate(policy, profile).status == "ineligible":
                 score -= 0.03
         adjusted.append((doc, score))
     adjusted.sort(key=lambda x: -x[1])
@@ -109,9 +110,9 @@ def _doc_for_prompt(doc, profile):
     if doc["type"] == "policy" and profile is not None:
         policy = data_loader.get_policy(doc["ref_id"])
         if policy:
-            status, _, reasons, check_items, _ = evaluate(policy, profile)
-            detail = ", ".join((reasons if status == "ineligible" else check_items) or reasons)
-            text = f"[이 가구 판정] {STATUS_LABEL[status]}" + (f" ({detail})" if detail else "") + "\n" + text
+            e = evaluate(policy, profile)
+            detail = ", ".join((e.reasons if e.status == "ineligible" else e.check_items) or e.reasons)
+            text = f"[이 가구 판정] {STATUS_LABEL[e.status]}" + (f" ({detail})" if detail else "") + "\n" + text
     return f"<자료 id={doc['id']}>\n{text}\n</자료>"
 
 
@@ -125,9 +126,9 @@ def _condition_reminder(used_docs, profile, generated):
         if d["type"] != "policy":
             continue
         policy = data_loader.get_policy(d["ref_id"])
-        status, _, _, check_items, _ = evaluate(policy, profile)
-        if status == "check" and check_items:
-            condition = check_items[0]
+        e = evaluate(policy, profile)
+        if e.status == "check" and e.check_items:
+            condition = e.check_items[0]
             keyword = "소득" if "소득" in condition else condition[:6]
             if keyword not in answer_text:
                 missing.append(f"{policy['name']}: {condition}")
@@ -157,7 +158,7 @@ def _sources_and_links(docs, profile):
             status = None
             if profile is not None:
                 policy = data_loader.get_policy(d["ref_id"])
-                status = evaluate(policy, profile)[0] if policy else None
+                status = evaluate(policy, profile).status if policy else None
             policies.append({"id": d["ref_id"], "name": d["title"], "status": status})
         else:
             facilities.append({"id": d["ref_id"], "name": d["title"]})

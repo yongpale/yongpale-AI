@@ -67,14 +67,10 @@ def household_documents(policy, profile):
 
 
 def profile_text(profile):
-    parts = [f"초{profile.grade}"]
+    parts = ["자녀 " + ", ".join(f"초{c.grade}" for c in profile.children)]
     if profile.gu:
         parts.append(f"용인시 {profile.gu} {profile.dong or ''}".strip())
     parts += [label for field, label in HOUSEHOLD_FLAGS if getattr(profile, field)]
-    if profile.low_income is True:
-        parts.append("저소득 가구")
-    if profile.income_percent is not None:
-        parts.append(f"기준 중위소득 {profile.income_percent}%")
     if profile.care_time:
         parts.append(f"돌봄 필요 {profile.care_time.start}~{profile.care_time.end}")
     return " / ".join(parts)
@@ -87,7 +83,9 @@ TIP_PROMPT = """너는 용인시 초등학생 자녀를 둔 부모에게 정책 
 - 2문장 이내, 존댓말("~해요", "~하세요")
 - 이 가구 상황(학년, 맞벌이·한부모·다자녀 등)과 직접 관련된 내용만
 - 정책 자료에 없는 내용(금액, 기간, 서류, 기관)은 절대 만들지 마라
-- 확인이 필요한 조건이 있으면 무엇을 확인해야 하는지 알려줘라
+- 이 서비스는 가구 소득과 다문화·장애 등 특정 가구 여부를 입력받지 않는다. 확인 필요 조건이 있으면
+  "기준 중위소득 ○% 이하 가구 대상이에요, 해당되는지 확인해 보세요"처럼 해당 여부를 확인하도록 안내해라
+- 판정이 '조건 확인 필요'이면 "받을 수 있어요", "신청하세요"처럼 대상이라고 단정하지 마라
 - 인사말, 머리말 없이 팁 문장만 써라
 
 가구 정보: {profile}
@@ -101,6 +99,15 @@ TIP_PROMPT = """너는 용인시 초등학생 자녀를 둔 부모에게 정책 
 """
 
 
+def condition_sentence(condition):
+    """'소득 기준: 기준 중위소득 50% 이하' → '기준 중위소득 50% 이하 가구 대상이에요, 해당되는지 확인해 보세요.'"""
+    if condition.startswith("소득 기준: "):
+        return f"{condition[len('소득 기준: '):]} 가구 대상이에요, 해당되는지 확인해 보세요."
+    if condition.endswith(" 대상"):
+        return f"{condition} 정책이에요, 해당되는지 확인해 보세요."
+    return f"신청 전에 '{condition}' 조건을 확인해 보세요."
+
+
 def fallback_tip(policy, profile, status, reasons, check_items):
     sentences = []
     m = policy["match"]
@@ -109,7 +116,7 @@ def fallback_tip(policy, profile, status, reasons, check_items):
     if preferred:
         sentences.append(f"{'·'.join(preferred)} 가구는 이 정책의 지원 대상에 해당해요.")
     if check_items:
-        sentences.append(f"신청 전에 '{check_items[0]}' 조건을 먼저 확인하세요.")
+        sentences.append(condition_sentence(check_items[0]))
     contact = policy["apply"].get("contact")
     if contact and len(sentences) < 2:
         sentences.append(f"자세한 내용은 {contact}로 문의하세요.")
@@ -120,7 +127,7 @@ def fallback_tip(policy, profile, status, reasons, check_items):
 
 def make_tip(policy, profile, summary_items, status, reasons, check_items):
     key = _tip_cache.key(
-        policy["id"], policy["source"]["updated_at"], profile.model_dump(exclude={"dong"}), status
+        TIP_PROMPT, policy["id"], policy["source"]["updated_at"], profile.model_dump(exclude={"dong"}), status
     )
     cached = _tip_cache.get(key)
     if cached:
@@ -158,8 +165,9 @@ def get_summary(policy_id, profile=None):
 
     status = tip = None
     if profile is not None:
-        status, _, reasons, check_items, _ = evaluate(policy, profile)
-        tip = make_tip(policy, profile, items, status, reasons, check_items)
+        e = evaluate(policy, profile)
+        status = e.status
+        tip = make_tip(policy, profile, items, e.status, e.reasons, e.check_items)
 
     docs = household_documents(policy, profile)
     sources = [policy["source"]]

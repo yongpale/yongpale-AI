@@ -167,7 +167,12 @@ def plan_reasons(facilities, covers, gap, remaining, profile, period):
     return reasons
 
 
-def analyze(profile, period="semester", school_end=None, care_time=None, max_results=3):
+def analyze(profile, period="semester", school_end=None, care_time=None, max_results=3, child_index=None):
+    """child_index: 분석할 자녀 (없으면 학년이 가장 낮은 자녀 = 하교가 가장 이르고 돌봄이 가장 많이 필요)"""
+    if child_index is not None and child_index >= len(profile.children):
+        raise ValueError(f"child_index {child_index}에 해당하는 자녀가 없습니다")
+    child = profile.children[child_index] if child_index is not None else profile.youngest
+    grade = child.grade
     care_time = care_time or profile.care_time
     if care_time is None:
         raise ValueError("돌봄이 필요한 시간(care_time)이 없습니다")
@@ -177,9 +182,9 @@ def analyze(profile, period="semester", school_end=None, care_time=None, max_res
 
     notes = []
     if period == "semester":
-        school_end = school_end or DEFAULT_SCHOOL_END[profile.grade]
-        if school_end == DEFAULT_SCHOOL_END[profile.grade]:
-            notes.append(f"하교 시간은 초{profile.grade} 기본값({school_end})으로 계산했어요. 학교마다 달라요.")
+        school_end = school_end or DEFAULT_SCHOOL_END[grade]
+        if school_end == DEFAULT_SCHOOL_END[grade]:
+            notes.append(f"하교 시간은 초{grade} 기본값({school_end})으로 계산했어요. 학교마다 달라요.")
         gap = [(max(need[0], to_min(school_end)), need[1])]
         gap = [(s, e) for s, e in gap if s < e]
     else:
@@ -189,7 +194,7 @@ def analyze(profile, period="semester", school_end=None, care_time=None, max_res
     candidates = []
     unknown_hours = 0
     for f in data_loader.load_facilities():
-        if not accepts_grade(f, profile.grade):
+        if not accepts_grade(f, grade):
             continue
         hours = facility_hours(f, period)
         if hours is None:
@@ -256,9 +261,11 @@ def analyze(profile, period="semester", school_end=None, care_time=None, max_res
             p = data_loader.get_policy(pid)
             if p is None:
                 continue
-            status, _, _, _, _ = evaluate(p, profile)
-            if status == "ineligible":
+            e = evaluate(p, profile)
+            # 해당 안 되거나 장애 등 특정 가구 대상 서비스는 안내하지 않는다
+            if e.status == "ineligible" or "special_group" in e.condition_types:
                 continue
+            status = e.status
             slots = ", ".join(f"{r['start']}~{r['end']}" for r in best_remaining)
             reason = f"시설로 채우지 못하는 {slots} 공백에 이용할 수 있는 돌봄 정책이에요"
             if p["id"] == CHILDCARE_SERVICE_ID:
@@ -267,6 +274,7 @@ def analyze(profile, period="semester", school_end=None, care_time=None, max_res
 
     notes.append("정원·대기 현황은 데이터에 없어서 시설에 직접 확인해야 해요.")
     return {
+        "child": child.label,
         "period": period,
         "care_time": time_range(*need),
         "school_end": school_end,
