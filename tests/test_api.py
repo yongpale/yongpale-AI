@@ -177,7 +177,72 @@ def test_care_gap_uses_youngest_child_by_default():
     assert client.post("/ai/care-gap", json={"profile": profile, "child_index": 5}).status_code == 422
 
 
-def test_care_gap_requires_care_time():
+def test_care_gap_without_care_time_uses_default():
+    # 백엔드 가구 정보에 돌봄 필요 시간이 없을 때
     profile = {k: v for k, v in DUAL_INCOME_GRADE1.items() if k != "care_time"}
+    body = client.post("/ai/care-gap", json={"profile": profile}).json()
+    assert body["care_time"] == {"start": "13:00", "end": "18:00", "minutes": 300}
+    assert any("돌봄 필요 시간 정보가 없어" in n for n in body["notes"])
+
+
+# ---------------------------------------------------------------------------
+# 백엔드 형식 호환
+# ---------------------------------------------------------------------------
+
+# 백엔드 GET 가구 정보 응답(HouseholdResponse)을 그대로 넘기는 경우
+BACKEND_PROFILE = {
+    "id": 1,
+    "region": {"id": 3, "guName": "수지구", "dongName": "상현3동", "regionType": "DONG"},
+    "situations": ["DUAL_INCOME", "MULTI_CHILD"],
+    "children": [
+        {"id": 10, "birthOrder": 1, "nickname": "첫째", "grade": "초3"},
+        {"id": 11, "birthOrder": 2, "nickname": "둘째", "grade": "유치6세"},
+    ],
+    "careNeedStartTime": "13:00:00",
+    "careNeedEndTime": "18:00:00",
+}
+
+
+def test_backend_profile_format_accepted():
+    from app.schemas import Profile
+
+    p = Profile.model_validate(BACKEND_PROFILE)
+    assert (p.gu, p.dong) == ("수지구", "상현3동")
+    assert p.dual_income and p.multi_child and not p.single_parent
+    assert [c.grade for c in p.children] == [3, -1]
+    assert (p.care_time.start, p.care_time.end) == ("13:00", "18:00")
+    res = client.post("/ai/policies/match", json={"profile": BACKEND_PROFILE})
+    assert res.status_code == 200
+    # 유치 자녀는 초등 정책 대상이 아니라 첫째만 대상
+    assert all(pol["target_children"] == ["첫째"] for pol in res.json()["policies"])
+
+
+def test_backend_profile_care_gap_matches_legal_dong():
+    body = client.post("/ai/care-gap", json={"profile": BACKEND_PROFILE}).json()
+    # 행정동 상현3동 프로필 ↔ 법정동 상현동 시설
+    assert body["child"] == "첫째"
+    reasons = " ".join(" ".join(p["reasons"]) for p in body["plans"])
+    assert "같은 동(상현동)" in reasons
+
+
+def test_kindergarten_only_household():
+    profile = {**DUAL_INCOME_GRADE1, "children": [{"nickname": "막내", "grade": "유치7세"}]}
+    body = client.post("/ai/policies/match", json={"profile": profile}).json()
+    assert body["total"] == 0
     res = client.post("/ai/care-gap", json={"profile": profile})
     assert res.status_code == 422
+
+
+def test_unknown_grade_label_rejected():
+    profile = {**DUAL_INCOME_GRADE1, "children": [{"grade": "중1"}]}
+    assert client.post("/ai/policies/match", json={"profile": profile}).status_code == 422
+
+
+def test_summary_lookup_by_backend_fields():
+    # 백엔드 policies에는 서비스ID가 없고 source_url, title만 있다
+    url = "https://plus.gov.kr/portal/benefitV2/benefitTotalSrvcList/benefitSrvcDtl?svcSeq=746602&bnefType=all&svcId=423000000362"
+    for body in ({"source_url": url}, {"title": "아이돌봄 서비스"}, {"title": "아이돌봄서비스"}, {"policy_id": CHILDCARE_ID}):
+        res = client.post("/ai/policies/summary", json=body)
+        assert res.status_code == 200 and res.json()["policy_id"] == CHILDCARE_ID
+    assert client.post("/ai/policies/summary", json={"title": "없는 정책"}).status_code == 404
+    assert client.post("/ai/policies/summary", json={}).status_code == 422

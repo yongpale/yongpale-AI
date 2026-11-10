@@ -67,7 +67,7 @@ def household_documents(policy, profile):
 
 
 def profile_text(profile):
-    parts = ["자녀 " + ", ".join(f"초{c.grade}" for c in profile.children)]
+    parts = ["자녀 " + ", ".join(c.grade_name for c in profile.children)]
     if profile.gu:
         parts.append(f"용인시 {profile.gu} {profile.dong or ''}".strip())
     parts += [label for field, label in HOUSEHOLD_FLAGS if getattr(profile, field)]

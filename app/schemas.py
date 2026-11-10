@@ -5,10 +5,17 @@ Profile은 F-002 가구 프로필 초안이다. 백엔드와 필드가 확정되
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Gu = Literal["처인구", "기흥구", "수지구"]
 TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+# 백엔드 ChildGrade 라벨 → 학년 숫자 (유치는 0 이하라 초등 정책 판정에서 빠진다)
+GRADE_LABELS = {"유치5세": -2, "유치6세": -1, "유치7세": 0,
+                "초1": 1, "초2": 2, "초3": 3, "초4": 4, "초5": 5, "초6": 6}
+GRADE_NAMES = {v: k for k, v in GRADE_LABELS.items()}
+BACKEND_SITUATIONS = {"DUAL_INCOME": "dual_income", "SINGLE_PARENT": "single_parent", "MULTI_CHILD": "multi_child"}
 
 
 class CareTime(BaseModel):
@@ -16,18 +23,45 @@ class CareTime(BaseModel):
     start: str = Field(..., pattern=TIME_PATTERN, examples=["13:00"])
     end: str = Field(..., pattern=TIME_PATTERN, examples=["18:00"])
 
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _drop_seconds(cls, v):
+        # 백엔드 LocalTime 직렬화 "13:00:00" → "13:00"
+        if isinstance(v, str) and len(v) == 8 and v.count(":") == 2:
+            return v[:5]
+        return v
+
 
 class Child(BaseModel):
-    nickname: Optional[str] = Field(None, max_length=20, description="자녀 닉네임")
-    grade: int = Field(..., ge=1, le=6, description="학년 (초1~초6)")
+    nickname: Optional[str] = Field(None, max_length=30, description="자녀 닉네임")
+    grade: int = Field(..., ge=-2, le=6, description='학년: 1~6 또는 백엔드 라벨 "초1"~"초6", "유치5세"~"유치7세"')
+
+    @field_validator("grade", mode="before")
+    @classmethod
+    def _grade_label(cls, v):
+        if isinstance(v, str) and v in GRADE_LABELS:
+            return GRADE_LABELS[v]
+        return v
+
+    @property
+    def is_elementary(self):
+        return 1 <= self.grade <= 6
+
+    @property
+    def grade_name(self):
+        return GRADE_NAMES[self.grade]
 
     @property
     def label(self):
-        return self.nickname or f"초{self.grade}"
+        return self.nickname or self.grade_name
 
 
 class Profile(BaseModel):
-    """가족 정보 입력 화면(03-03)과 같은 항목. 소득·특수가구는 입력받지 않는다."""
+    """가족 정보 입력 화면(03-03)과 같은 항목. 소득·특수가구는 입력받지 않는다.
+
+    백엔드 가구 정보 응답(HouseholdResponse) 형식도 그대로 받는다:
+    region.guName/dongName, situations ["DUAL_INCOME", ...], children[].grade "초2", careNeedStartTime/EndTime
+    """
     gu: Optional[Gu] = Field(None, description="거주 구")
     dong: Optional[str] = Field(None, description="거주 읍·면·동", examples=["구갈동"])
     dual_income: bool = Field(False, description="가정 상황: 맞벌이")
@@ -47,13 +81,35 @@ class Profile(BaseModel):
         }
     }
 
-    @property
-    def grades(self):
-        return sorted({c.grade for c in self.children})
+    @model_validator(mode="before")
+    @classmethod
+    def _from_backend(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        region = data.pop("region", None)
+        if isinstance(region, dict):
+            data.setdefault("gu", region.get("guName"))
+            data.setdefault("dong", region.get("dongName"))
+        situations = data.pop("situations", None)
+        if situations is not None:
+            for s in situations:
+                if s in BACKEND_SITUATIONS:
+                    data.setdefault(BACKEND_SITUATIONS[s], True)
+        start, end = data.pop("careNeedStartTime", None), data.pop("careNeedEndTime", None)
+        if start and end and not data.get("care_time"):
+            data["care_time"] = {"start": start, "end": end}
+        data.pop("id", None)
+        return data
 
     @property
-    def youngest(self):
-        return min(self.children, key=lambda c: c.grade)
+    def elementary_children(self):
+        return [c for c in self.children if c.is_elementary]
+
+    @property
+    def youngest_elementary(self):
+        kids = self.elementary_children
+        return min(kids, key=lambda c: c.grade) if kids else None
 
 
 class Source(BaseModel):
@@ -135,6 +191,20 @@ class SummaryRequest(BaseModel):
     profile: Optional[Profile] = None
 
 
+class SummaryLookupRequest(BaseModel):
+    """정책 ID 대신 백엔드가 가진 값으로 찾기: policy_id, source_url, title 중 하나"""
+    policy_id: Optional[str] = Field(None, description="정부24 서비스ID")
+    source_url: Optional[str] = Field(None, description="백엔드 policies.source_url (svcId 포함)")
+    title: Optional[str] = Field(None, description="백엔드 policies.title")
+    profile: Optional[Profile] = None
+
+    @model_validator(mode="after")
+    def _need_one(self):
+        if not (self.policy_id or self.source_url or self.title):
+            raise ValueError("policy_id, source_url, title 중 하나는 있어야 합니다")
+        return self
+
+
 class SummaryResponse(BaseModel):
     policy_id: str
     name: str
@@ -158,7 +228,7 @@ class SummaryResponse(BaseModel):
 class CareGapRequest(BaseModel):
     profile: Profile
     child_index: Optional[int] = Field(
-        None, ge=0, description="분석할 자녀 (children 순서, 0부터). 없으면 학년이 가장 낮은 자녀"
+        None, ge=0, description="분석할 자녀 (children 순서, 0부터). 없으면 학년이 가장 낮은 초등학생 자녀"
     )
     period: Literal["semester", "vacation"] = Field("semester", description="학기 중 / 방학 중")
     school_end: Optional[str] = Field(
@@ -263,6 +333,7 @@ class ChatFacilityLink(BaseModel):
 
 class ChatResponse(BaseModel):
     answer_id: str = Field(..., description="답변 ID (도움됨/아님 피드백 저장용)")
+    model: Optional[str] = Field(None, description="답변을 만든 모델 (Gemini를 쓰지 않았으면 null)")
     profile_label: Optional[str] = Field(None, description="'초1 · 기흥구 구갈동 · 맞벌이'")
     grounded: bool = Field(..., description="false면 '근거 없음' 배지")
     generated: bool = Field(..., description="false면 Gemini 없이 만든 답변 (근거 없음 또는 자료 목록)")
