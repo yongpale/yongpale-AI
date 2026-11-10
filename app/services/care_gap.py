@@ -9,6 +9,7 @@ from itertools import combinations
 
 from app import data_loader
 from app.services.matching import evaluate
+from app.services.regions import same_dong
 
 # 학기 중 학년별 하교 시간 기본값 (학교·요일마다 다름)
 DEFAULT_SCHOOL_END = {1: "13:00", 2: "13:00", 3: "14:30", 4: "14:30", 5: "15:00", 6: "15:00"}
@@ -82,7 +83,7 @@ def facility_hours(facility, period):
 
 def closeness(facility, profile):
     """2 = 같은 동, 1 = 같은 구, 0 = 다른 구 또는 알 수 없음"""
-    if profile.dong and facility.get("dong") == profile.dong:
+    if profile.dong and same_dong(facility.get("dong"), profile.dong):
         return 2
     if profile.gu and facility.get("gu") == profile.gu:
         return 1
@@ -168,10 +169,12 @@ def plan_reasons(facilities, covers, gap, remaining, profile, period):
 
 
 def analyze(profile, period="semester", school_end=None, care_time=None, max_results=3, child_index=None):
-    """child_index: 분석할 자녀 (없으면 학년이 가장 낮은 자녀 = 하교가 가장 이르고 돌봄이 가장 많이 필요)"""
+    """child_index: 분석할 자녀 (없으면 학년이 가장 낮은 초등학생 자녀 = 하교가 가장 이르고 돌봄이 가장 많이 필요)"""
     if child_index is not None and child_index >= len(profile.children):
         raise ValueError(f"child_index {child_index}에 해당하는 자녀가 없습니다")
-    child = profile.children[child_index] if child_index is not None else profile.youngest
+    child = profile.children[child_index] if child_index is not None else profile.youngest_elementary
+    if child is None or not child.is_elementary:
+        raise ValueError("돌봄 공백 분석은 초등학생 자녀만 할 수 있습니다 (시설 데이터가 초등 대상)")
     grade = child.grade
     care_time = care_time or profile.care_time
     if care_time is None:

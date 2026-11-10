@@ -63,7 +63,19 @@ tests/
 | gu, dong | 거주 동네 (구 선택, 읍·면·동 선택) |
 | dual_income, single_parent, multi_child | 가정 상황 (맞벌이, 한부모, 다자녀 중복 선택) |
 | care_time | 하교 후 돌봄이 필요한 시간 |
-| children | 자녀 정보 (닉네임, 학년 1~6). 1명 이상 |
+| children | 자녀 정보 (닉네임, 학년). 1명 이상 |
+
+백엔드 가구 정보 응답(`HouseholdResponse`)을 그대로 넘겨도 됩니다.
+
+| 백엔드 | AI |
+|---|---|
+| `region.guName`, `region.dongName` | `gu`, `dong` |
+| `situations: ["DUAL_INCOME", "SINGLE_PARENT", "MULTI_CHILD"]` | `dual_income`, `single_parent`, `multi_child` |
+| `children[].grade: "초1"~"초6", "유치5세"~"유치7세"` | `children[].grade` (숫자 1~6도 가능) |
+| `careNeedStartTime`, `careNeedEndTime` ("13:00:00") | `care_time` |
+
+- 유치 자녀는 받지만, 정책·시설 데이터가 초등 대상이라 판정과 돌봄 공백 분석에서는 초등학생 자녀만 씁니다.
+- 동은 백엔드 지역 목록의 행정동(상현3동)과 시설 주소의 법정동(상현동)을 같은 동으로 봅니다.
 
 ## F-003 정책 추천
 
@@ -131,6 +143,16 @@ tests/
 - `history`는 이전 대화로, "신청 기간 알려줘" 같은 이어지는 질문에 씁니다 (최근 4턴).
 - Gemini가 실패하면 검색된 자료 목록으로 답합니다 (`generated: false`).
 - 데이터를 바꾸면 `python3 scripts/build_embeddings.py`로 검색 임베딩을 다시 만듭니다 (바뀐 문서만).
+
+## 백엔드 연동 시 맞출 것
+
+- **정책 ID**: AI API의 정책 id는 정부24 서비스ID(`policies.json`의 `id`, 예: `423000000362`)입니다.
+  백엔드 `policies` 테이블에 이 값을 저장해야 요약 API 호출과 추천 결과 연결이 됩니다.
+- **챗봇 저장**: `grounded` → `chat_messages.answerable`, `sources` → `citations`, `model` → `model_name`.
+  도움됨/아님 피드백은 백엔드가 `answer_id` 또는 메시지 ID로 저장합니다.
+- **RAG**: 검색·임베딩은 AI 서버가 직접 합니다. 백엔드 `knowledge_documents`, `document_chunks`는 채우지 않아도 됩니다.
+- **데이터 파일**: 백엔드 `resources/data/`의 `policies.json`, `facilities.csv`는 AI 레포 `data/processed/`의 최신본을 복사해서 씁니다.
+- **신청 일정**: 정책 원문에 정확한 신청 날짜가 없어(상시, "매년 4월" 등) `policy_schedules`를 자동으로 채울 수 없습니다.
 
 ## Gemini 무료 한도
 

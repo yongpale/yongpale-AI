@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app import config, data_loader
 from app.services import documents, gemini, retrieval
 from app.services.matching import HOUSEHOLD_FLAGS, evaluate
+from app.services.regions import same_dong
 
 TOP_K = 6
 HISTORY_TURNS = 4
@@ -73,7 +74,7 @@ def profile_label(profile):
     """'초1 · 기흥구 구갈동 · 맞벌이'"""
     if profile is None:
         return None
-    parts = ["·".join(f"초{c.grade}" for c in profile.children)]
+    parts = ["·".join(c.grade_name for c in profile.children)]
     if profile.gu:
         parts.append(" ".join(x for x in (profile.gu, profile.dong) if x))
     parts += [label for field, label in HOUSEHOLD_FLAGS if getattr(profile, field)]
@@ -88,7 +89,7 @@ def _rerank(results, profile):
     for doc, score in results:
         if doc["type"] == "facility":
             f = next((x for x in data_loader.load_facilities() if x["id"] == doc["ref_id"]), None)
-            if f and profile.dong and f.get("dong") == profile.dong:
+            if f and profile.dong and same_dong(f.get("dong"), profile.dong):
                 score += 0.03
             elif f and profile.gu and f.get("gu") == profile.gu:
                 score += 0.015
@@ -261,6 +262,7 @@ def answer(question, profile=None, history=None, user_name=None):
         items.append(reminder)
     return {
         "answer_id": answer_id,
+        "model": config.GEMINI_LITE_MODEL,
         "profile_label": profile_label(profile),
         "grounded": True,
         "generated": True,
