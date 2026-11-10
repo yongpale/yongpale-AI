@@ -79,3 +79,41 @@ class FileCache:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=1)
             tmp.replace(self.path)
+
+
+def embed_query(text):
+    """검색 질문 임베딩. 실패하면 None"""
+    if not config.GEMINI_ENABLED:
+        return None
+    from google.genai import types
+
+    try:
+        res = _get_client().models.embed_content(
+            model=config.GEMINI_EMBEDDING_MODEL,
+            contents=[text],
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY", output_dimensionality=config.EMBEDDING_DIM),
+        )
+        return res.embeddings[0].values
+    except Exception as e:
+        logger.warning("임베딩 실패: %s", str(e)[:200])
+        return None
+
+
+def generate_json(prompt, schema, model=None, temperature=0.2):
+    """JSON 생성 (schema: pydantic 모델). 실패하면 None"""
+    if not config.GEMINI_ENABLED:
+        return None
+    from google.genai import types
+
+    try:
+        res = _get_client().models.generate_content(
+            model=model or config.GEMINI_LITE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json", response_schema=schema, temperature=temperature
+            ),
+        )
+        return schema.model_validate_json(res.text)
+    except Exception as e:
+        logger.warning("Gemini 호출 실패: %s", str(e)[:200])
+        return None

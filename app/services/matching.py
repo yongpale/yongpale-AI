@@ -1,14 +1,19 @@
 """F-003 맞춤형 정책 추천: 프로필과 정책 조건(policies.json의 match)을 규칙으로 비교한다.
 
 판정
-  ineligible  조건이 분명히 맞지 않음 (학년 범위 밖, 한부모 전용인데 한부모 아님 등)
-  check       프로필만으로 판단할 수 없는 조건이 있음 (소득 정보 없음, 거주 기간, 등급 판정 등)
+  ineligible  조건이 분명히 맞지 않음 (자녀 학년이 대상 밖, 한부모 전용인데 한부모 아님 등)
+  check       프로필로 알 수 없는 조건이 있음 (소득, 다문화·장애 등 특정 가구, 거주 기간 등)
   eligible    알 수 있는 조건이 모두 맞음
+
+프로필은 소득·특정 가구 정보를 받지 않는다. 그런 조건이 있는 정책은 빼지 않고
+'조건 확인 필요' 라벨을 붙여 보여준다 (해당될 수 있는 정책을 놓치지 않게 알려주는 것이 목적).
+특정 가구 대상 정책은 일반 가구에 해당할 가능성이 낮아 점수를 낮춰 목록 아래쪽에 둔다.
 
 적합도 점수(0~100)는 판정 기본점에 가구 조건 일치, 지역, 돌봄 필요 여부를 더한다.
 """
 
 import re
+from collections import namedtuple
 
 from app import data_loader
 
@@ -30,7 +35,7 @@ SPECIAL_KEYWORDS = {
     "veteran": ["보훈", "유공자"],
     "out_of_school": ["미취학", "학업중단", "학교 밖"],
 }
-# 프로필의 맞벌이·한부모·다자녀, 소득 항목으로 이미 판단하는 조건
+# 맞벌이·한부모·다자녀, 소득 항목으로 이미 다루는 조건
 RESOLVED_KEYWORDS = ["맞벌이", "한부모", "조손", "다자녀", "저소득", "수급", "차상위"]
 SPECIAL_LABEL = {
     "multicultural": "다문화가족",
@@ -40,6 +45,12 @@ SPECIAL_LABEL = {
     "out_of_school": "학교 밖 아동(미취학·학업중단)",
 }
 CARE_CATEGORIES = {"돌봄", "방과후·학습"}
+SPECIAL_GROUP_PENALTY = 20
+
+Evaluation = namedtuple(
+    "Evaluation",
+    "status score reasons check_items notes labels condition_types target_children",
+)
 
 
 def special_groups(policy):
@@ -68,18 +79,19 @@ def income_limit_percent(policy):
 
 
 def evaluate(policy, profile):
-    """정책 하나를 판정한다. (status, score, reasons, check_items, notes)"""
+    """정책 하나를 판정한다 (Evaluation)"""
     m = policy["match"]
-    reasons, check_items, blockers = [], [], []
+    reasons, check_items, blockers, labels, condition_types = [], [], [], [], []
     notes = [m["notes"]] if m.get("notes") else []
     score_bonus = 0
 
-    # 학년
+    # 자녀 학년: 한 명이라도 대상이면 추천
     grade_min, grade_max = m.get("grade_min") or 1, m.get("grade_max") or 6
-    if not grade_min <= profile.grade <= grade_max:
+    targets = [c for c in profile.children if grade_min <= c.grade <= grade_max]
+    if not targets:
         blockers.append(f"대상 학년이 초{grade_min}~초{grade_max}입니다")
-    elif (grade_min, grade_max) != (1, 6):
-        reasons.append(f"초{grade_min}~초{grade_max} 대상")
+    elif (grade_min, grade_max) != (1, 6) or len(targets) < len(profile.children):
+        reasons.append(f"{', '.join(c.label for c in targets)} 대상 (초{grade_min}~초{grade_max})")
 
     # 맞벌이·한부모·다자녀
     for field, label in HOUSEHOLD_FLAGS:
@@ -95,39 +107,30 @@ def evaluate(policy, profile):
             score_bonus += 10
             reasons.append(f"{label} 가구 우대")
 
-    # 특정 가구 집단 (다문화, 장애, 북한이탈주민, 국가보훈대상자)
-    for group in sorted(special_groups(policy)):
-        if group in profile.special:
-            score_bonus += 15
-            reasons.append(f"{SPECIAL_LABEL[group]} 대상")
-        else:
-            blockers.append(f"{SPECIAL_LABEL[group]} 대상 정책입니다")
+    # 특정 가구 (다문화, 장애, 북한이탈주민, 국가보훈대상자, 학교 밖 아동): 입력받지 않으므로 확인 필요
+    groups = sorted(special_groups(policy))
+    if groups:
+        score_bonus -= SPECIAL_GROUP_PENALTY
+        condition_types.append("special_group")
+        for group in groups:
+            check_items.append(f"{SPECIAL_LABEL[group]} 대상")
+            labels.append(f"{SPECIAL_LABEL[group]} 대상")
 
-    # 소득
-    limit = income_limit_percent(policy)
+    # 소득: 입력받지 않으므로 소득 조건이 있으면 확인 필요
     if m.get("low_income_only"):
-        if profile.income_percent is not None and limit is not None:
-            if profile.income_percent <= limit:
-                reasons.append(f"소득 기준({m['income_limit']}) 충족")
-            else:
-                blockers.append(f"소득 기준({m['income_limit']})을 넘습니다")
-        elif profile.low_income is True:
-            score_bonus += 5
-            reasons.append("저소득 가구 대상")
-        elif profile.low_income is False:
-            blockers.append("저소득 가구만 신청할 수 있습니다")
-        else:
-            check_items.append(f"소득 기준: {m.get('income_limit') or '저소득 가구 대상'}")
-    elif limit is not None:
+        check_items.append(f"소득 기준: {m.get('income_limit') or '저소득 가구 대상'}")
+        labels.append("소득 조건 확인 필요")
+        condition_types.append("income")
+    elif income_limit_percent(policy) is not None:
         # 저소득 전용은 아니지만 소득에 따라 지원이 달라지는 경우 (예: 아이돌봄 서비스 정부 지원)
-        if profile.income_percent is None:
-            notes.append(f"소득 기준({m['income_limit']})에 따라 지원 수준이 달라집니다")
-        elif profile.income_percent > limit:
-            notes.append(f"소득 기준({m['income_limit']})을 넘어 정부 지원을 받지 못할 수 있습니다")
+        notes.append(f"소득 기준({m['income_limit']})에 따라 지원 수준이 달라집니다")
 
-    # 그 밖의 조건
-    for req in unresolved_requirements(policy):
-        check_items.append(req)
+    # 그 밖의 조건 (거주 기간, 수상 실적, 등급 판정 등)
+    others = unresolved_requirements(policy)
+    if others:
+        check_items += others
+        labels.append("조건 확인 필요")
+        condition_types.append("other")
 
     # 지역
     region = policy["region"]
@@ -140,18 +143,22 @@ def evaluate(policy, profile):
         score_bonus += 10
         reasons.append(f"돌봄 필요 시간({profile.care_time.start}~{profile.care_time.end})에 맞는 {m['category']} 정책")
 
+    target_names = [c.label for c in targets]
     if blockers:
-        return "ineligible", 0, blockers, check_items, notes
+        return Evaluation("ineligible", 0, blockers, check_items, notes, [], condition_types, target_names)
     status = "check" if check_items else "eligible"
-    score = min(100, BASE_SCORE[status] + score_bonus)
-    return status, score, reasons, check_items, notes
+    if status == "eligible":
+        labels.insert(0, "해당 가능")
+    score = max(0, min(100, BASE_SCORE[status] + score_bonus))
+    return Evaluation(status, score, reasons, check_items, notes, labels, condition_types, target_names)
 
 
 def match_policies(profile, include_ineligible=False, limit=None):
+    """'총 N건' = 해당 가능 + 조건 확인 필요 (특정 가구 대상은 점수가 낮아 목록 뒤쪽)"""
     results = []
     for policy in data_loader.load_policies():
-        status, score, reasons, check_items, notes = evaluate(policy, profile)
-        if status == "ineligible" and not include_ineligible:
+        e = evaluate(policy, profile)
+        if e.status == "ineligible" and not include_ineligible:
             continue
         results.append({
             "id": policy["id"],
@@ -160,11 +167,14 @@ def match_policies(profile, include_ineligible=False, limit=None):
             "region": policy["region"],
             "category": policy["match"].get("category"),
             "summary": policy.get("summary"),
-            "status": status,
-            "score": score,
-            "reasons": reasons,
-            "check_items": check_items,
-            "notes": notes,
+            "status": e.status,
+            "score": e.score,
+            "reasons": e.reasons,
+            "check_items": e.check_items,
+            "labels": e.labels,
+            "condition_types": e.condition_types,
+            "target_children": e.target_children,
+            "notes": e.notes,
             "apply_period": policy["match"].get("apply_period"),
             "source": policy["source"],
         })
@@ -173,9 +183,12 @@ def match_policies(profile, include_ineligible=False, limit=None):
     results.sort(key=lambda r: (order[r["status"]], -r["score"], r["name"]))
     eligible = sum(1 for r in results if r["status"] == "eligible")
     check = sum(1 for r in results if r["status"] == "check")
+    special = sum(1 for r in results if "special_group" in r["condition_types"])
     return {
         "total": eligible + check,
         "eligible_count": eligible,
         "check_count": check,
+        "special_group_count": special,
+        "total_without_special": eligible + check - special,
         "policies": results[:limit] if limit else results,
     }

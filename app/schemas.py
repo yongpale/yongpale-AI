@@ -8,47 +8,52 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 Gu = Literal["처인구", "기흥구", "수지구"]
-SpecialGroup = Literal["multicultural", "disability", "north_korean_defector", "veteran", "out_of_school"]
 TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 class CareTime(BaseModel):
-    """돌봄이 필요한 시간대 (예: 13:00~19:00)"""
+    """하교 후 돌봄이 필요한 시간 (예: 13:00~18:00)"""
     start: str = Field(..., pattern=TIME_PATTERN, examples=["13:00"])
-    end: str = Field(..., pattern=TIME_PATTERN, examples=["19:00"])
+    end: str = Field(..., pattern=TIME_PATTERN, examples=["18:00"])
+
+
+class Child(BaseModel):
+    nickname: Optional[str] = Field(None, max_length=20, description="자녀 닉네임")
+    grade: int = Field(..., ge=1, le=6, description="학년 (초1~초6)")
+
+    @property
+    def label(self):
+        return self.nickname or f"초{self.grade}"
 
 
 class Profile(BaseModel):
+    """가족 정보 입력 화면(03-03)과 같은 항목. 소득·특수가구는 입력받지 않는다."""
     gu: Optional[Gu] = Field(None, description="거주 구")
     dong: Optional[str] = Field(None, description="거주 읍·면·동", examples=["구갈동"])
-    grade: int = Field(..., ge=1, le=6, description="자녀 학년 (초1~초6)")
-    dual_income: bool = Field(False, description="맞벌이")
-    single_parent: bool = Field(False, description="한부모·조손")
-    multi_child: bool = Field(False, description="다자녀")
-    low_income: Optional[bool] = Field(
-        None, description="기초생활수급·차상위 등 저소득 가구 여부. 모르면 null"
-    )
-    income_percent: Optional[int] = Field(
-        None, ge=0, le=1000, description="기준 중위소득 대비 가구 소득(%). 모르면 null"
-    )
-    special: List[SpecialGroup] = Field(
-        default_factory=list,
-        description="해당하는 가구 특성: multicultural(다문화), disability(장애·특수교육), "
-                    "north_korean_defector(북한이탈주민), veteran(국가보훈대상자), "
-                    "out_of_school(미취학·학업중단 등 학교 밖 아동)",
-    )
-    care_time: Optional[CareTime] = Field(None, description="돌봄이 필요한 시간대 (평일)")
+    dual_income: bool = Field(False, description="가정 상황: 맞벌이")
+    single_parent: bool = Field(False, description="가정 상황: 한부모")
+    multi_child: bool = Field(False, description="가정 상황: 다자녀")
+    care_time: Optional[CareTime] = Field(None, description="하교 후 돌봄이 필요한 시간 (평일)")
+    children: List[Child] = Field(..., min_length=1, max_length=10, description="자녀 정보 (1명 이상)")
 
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "gu": "기흥구", "dong": "구갈동", "grade": 1,
+                "gu": "기흥구", "dong": "구갈동",
                 "dual_income": True, "single_parent": False, "multi_child": False,
-                "low_income": None, "income_percent": None, "special": [],
-                "care_time": {"start": "13:00", "end": "19:00"},
+                "care_time": {"start": "13:00", "end": "18:00"},
+                "children": [{"nickname": "첫째", "grade": 1}],
             }]
         }
     }
+
+    @property
+    def grades(self):
+        return sorted({c.grade for c in self.children})
+
+    @property
+    def youngest(self):
+        return min(self.children, key=lambda c: c.grade)
 
 
 class Source(BaseModel):
@@ -82,6 +87,11 @@ class PolicyMatch(BaseModel):
     score: int = Field(..., ge=0, le=100, description="적합도 점수")
     reasons: List[str] = Field(..., description="점수·판단 근거")
     check_items: List[str] = Field(..., description="신청 전 직접 확인해야 하는 조건")
+    labels: List[str] = Field(..., description="화면 표시용 라벨 (예: 소득 조건 확인 필요, 다문화가족 대상)")
+    condition_types: List[Literal["income", "special_group", "other"]] = Field(
+        ..., description="확인 필요 조건 종류: 소득 / 특정 가구(다문화·장애 등) / 그 밖의 조건"
+    )
+    target_children: List[str] = Field(..., description="대상 학년에 해당하는 자녀 (닉네임 또는 초N)")
     notes: List[str] = Field(..., description="참고 사항 (판정에는 영향 없음)")
     apply_period: Optional[str]
     source: Source
@@ -91,6 +101,8 @@ class MatchResponse(BaseModel):
     total: int = Field(..., description="eligible + check 정책 수 (홈 화면 '총 N건')")
     eligible_count: int
     check_count: int
+    special_group_count: int = Field(..., description="다문화·장애 등 특정 가구 대상이라 확인이 필요한 정책 수")
+    total_without_special: int = Field(..., description="특정 가구 대상 정책을 뺀 수 (홈 화면 숫자로 쓸 수 있음)")
     policies: List[PolicyMatch]
 
 
@@ -145,6 +157,9 @@ class SummaryResponse(BaseModel):
 
 class CareGapRequest(BaseModel):
     profile: Profile
+    child_index: Optional[int] = Field(
+        None, ge=0, description="분석할 자녀 (children 순서, 0부터). 없으면 학년이 가장 낮은 자녀"
+    )
     period: Literal["semester", "vacation"] = Field("semester", description="학기 중 / 방학 중")
     school_end: Optional[str] = Field(
         None, pattern=TIME_PATTERN, description="하교 시간 (학기 중). 없으면 학년별 기본값"
@@ -194,6 +209,7 @@ class RelatedPolicy(BaseModel):
 
 
 class CareGapResponse(BaseModel):
+    child: str = Field(..., description="분석한 자녀 (닉네임 또는 초N)")
     period: str
     care_time: TimeRange
     school_end: Optional[str]
@@ -202,3 +218,57 @@ class CareGapResponse(BaseModel):
     plans: List[CareGapPlan]
     related_policies: List[RelatedPolicy] = Field(..., description="남는 공백을 채울 수 있는 돌봄 정책")
     notes: List[str]
+
+
+# ---------------------------------------------------------------------------
+# AI 돌봄·배움 챗봇
+# ---------------------------------------------------------------------------
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(..., max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500, examples=["아이돌봄 서비스는 어디서 신청하고 서류는 뭐가 필요해요?"])
+    profile: Optional[Profile] = None
+    history: List[ChatTurn] = Field(default_factory=list, description="이전 대화 (최근 4턴만 사용)")
+    user_name: Optional[str] = Field(None, max_length=20, description="답변에서 부를 이름 (예: 김용인)")
+
+
+class ChatItem(BaseModel):
+    title: str = Field(..., description="번호 목록 제목 (예: 신청처, 제출 서류, 접수 기간)")
+    text: str
+
+
+class ChatSource(BaseModel):
+    type: Literal["policy", "facility"]
+    id: str
+    title: str = Field(..., description="정책명 또는 시설명")
+    name: Optional[str] = Field(None, description="출처 기관·데이터 이름")
+    url: Optional[str] = None
+    updated_at: Optional[str] = Field(None, description="정보 기준일")
+
+
+class ChatPolicyLink(BaseModel):
+    id: str
+    name: str
+    status: Optional[Status] = Field(None, description="프로필이 있을 때 판정")
+
+
+class ChatFacilityLink(BaseModel):
+    id: str
+    name: str
+
+
+class ChatResponse(BaseModel):
+    answer_id: str = Field(..., description="답변 ID (도움됨/아님 피드백 저장용)")
+    profile_label: Optional[str] = Field(None, description="'초1 · 기흥구 구갈동 · 맞벌이'")
+    grounded: bool = Field(..., description="false면 '근거 없음' 배지")
+    generated: bool = Field(..., description="false면 Gemini 없이 만든 답변 (근거 없음 또는 자료 목록)")
+    intro: str
+    items: List[ChatItem] = Field(..., description="번호 목록 (없으면 빈 배열)")
+    sources: List[ChatSource] = Field(..., description="근거 출처")
+    related_policies: List[ChatPolicyLink] = Field(..., description="관련 정책 바로가기")
+    related_facilities: List[ChatFacilityLink]
+    suggested_questions: List[str] = Field(..., description="추천 질문")

@@ -8,8 +8,9 @@ CHILDCARE_ID = "423000000362"  # 아이돌봄 서비스
 SINGLE_PARENT_ONLY_ID = "641000000155"  # 한부모가족 학습재료비 등 지원
 
 DUAL_INCOME_GRADE1 = {
-    "gu": "기흥구", "dong": "구갈동", "grade": 1, "dual_income": True,
+    "gu": "기흥구", "dong": "구갈동", "dual_income": True,
     "care_time": {"start": "13:00", "end": "19:00"},
+    "children": [{"nickname": "첫째", "grade": 1}],
 }
 
 
@@ -49,25 +50,44 @@ def test_match_required_household_excluded():
     body = client.post("/ai/policies/match", json={"profile": DUAL_INCOME_GRADE1}).json()
     assert SINGLE_PARENT_ONLY_ID not in [p["id"] for p in body["policies"]]
 
-    profile = {**DUAL_INCOME_GRADE1, "dual_income": False, "single_parent": True, "low_income": True}
+    profile = {**DUAL_INCOME_GRADE1, "dual_income": False, "single_parent": True}
     body = client.post("/ai/policies/match", json={"profile": profile}).json()
     target = next(p for p in body["policies"] if p["id"] == SINGLE_PARENT_ONLY_ID)
-    assert target["status"] == "eligible"
+    # 한부모 조건은 맞고, 소득은 입력받지 않으므로 확인 필요
+    assert target["status"] == "check"
+    assert "한부모·조손 가구 대상" in target["reasons"]
+    assert "소득 조건 확인 필요" in target["labels"]
 
 
-def test_match_unknown_income_is_check():
+def test_match_income_condition_is_labeled():
     body = client.post("/ai/policies/match", json={"profile": DUAL_INCOME_GRADE1}).json()
     low_income_policy = next(p for p in body["policies"] if p["name"] == "교육급여")
     assert low_income_policy["status"] == "check"
-    assert any("소득" in c for c in low_income_policy["check_items"])
+    assert low_income_policy["condition_types"] == ["income"]
+    assert "소득 조건 확인 필요" in low_income_policy["labels"]
 
 
-def test_match_special_group():
-    general = client.post("/ai/policies/match", json={"profile": DUAL_INCOME_GRADE1}).json()
-    assert all("다문화" not in p["name"] for p in general["policies"])
-    profile = {**DUAL_INCOME_GRADE1, "special": ["multicultural"]}
-    multicultural = client.post("/ai/policies/match", json={"profile": profile}).json()
-    assert any("다문화" in p["name"] for p in multicultural["policies"])
+def test_match_special_group_kept_but_ranked_low():
+    body = client.post("/ai/policies/match", json={"profile": DUAL_INCOME_GRADE1}).json()
+    special = [p for p in body["policies"] if "special_group" in p["condition_types"]]
+    general = [p for p in body["policies"] if "special_group" not in p["condition_types"]]
+    assert any("다문화" in p["name"] for p in special)
+    assert all("다문화가족 대상" in p["labels"] for p in special if p["name"].startswith("다문화가족"))
+    assert body["special_group_count"] == len(special)
+    assert body["total_without_special"] == len(general)
+    # 특정 가구 정책은 점수를 낮춰 목록 뒤쪽에
+    assert max(p["score"] for p in special) < max(p["score"] for p in general)
+    assert body["policies"][0]["condition_types"] == []
+
+
+def test_match_multiple_children():
+    profile = {**DUAL_INCOME_GRADE1, "children": [{"nickname": "첫째", "grade": 2}, {"nickname": "둘째", "grade": 5}]}
+    body = client.post("/ai/policies/match", json={"profile": profile}).json()
+    video_english = next(p for p in body["policies"] if "화상영어" in p["name"])  # 초3~초6 대상
+    assert video_english["target_children"] == ["둘째"]
+    only_second = {**profile, "children": [{"grade": 2}]}
+    body = client.post("/ai/policies/match", json={"profile": only_second}).json()
+    assert all("화상영어" not in p["name"] for p in body["policies"])
 
 
 def test_match_include_ineligible_and_limit():
@@ -78,7 +98,9 @@ def test_match_include_ineligible_and_limit():
 
 
 def test_match_invalid_profile():
-    res = client.post("/ai/policies/match", json={"profile": {"grade": 7}})
+    res = client.post("/ai/policies/match", json={"profile": {"children": [{"grade": 7}]}})
+    assert res.status_code == 422
+    res = client.post("/ai/policies/match", json={"profile": {"children": []}})
     assert res.status_code == 422
 
 
@@ -131,7 +153,7 @@ def test_care_gap_semester():
 
 def test_care_gap_remaining_suggests_childcare():
     req = {
-        "profile": {**DUAL_INCOME_GRADE1, "gu": "수지구", "dong": None, "grade": 4},
+        "profile": {**DUAL_INCOME_GRADE1, "gu": "수지구", "dong": None, "children": [{"grade": 4}]},
         "period": "vacation",
         "care_time": {"start": "08:00", "end": "21:30"},
     }
@@ -144,6 +166,15 @@ def test_care_gap_no_gap():
     req = {"profile": {**DUAL_INCOME_GRADE1, "care_time": {"start": "10:00", "end": "12:00"}}, "period": "semester"}
     body = client.post("/ai/care-gap", json=req).json()
     assert body["gap"] == [] and body["plans"] == []
+
+
+def test_care_gap_uses_youngest_child_by_default():
+    profile = {**DUAL_INCOME_GRADE1, "children": [{"nickname": "형", "grade": 5}, {"nickname": "동생", "grade": 1}]}
+    body = client.post("/ai/care-gap", json={"profile": profile}).json()
+    assert body["child"] == "동생" and body["school_end"] == "13:00"
+    body = client.post("/ai/care-gap", json={"profile": profile, "child_index": 0}).json()
+    assert body["child"] == "형" and body["school_end"] == "15:00"
+    assert client.post("/ai/care-gap", json={"profile": profile, "child_index": 5}).status_code == 422
 
 
 def test_care_gap_requires_care_time():
