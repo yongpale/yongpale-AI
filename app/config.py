@@ -24,4 +24,9 @@ GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-0
 EMBEDDING_DIM = 768
 # 0이면 Gemini를 호출하지 않고 대체 응답만 사용 (테스트, 한도 소진 시)
 GEMINI_ENABLED = os.getenv("GEMINI_ENABLED", "1") != "0" and bool(GEMINI_API_KEY)
-GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "15"))
+# Gemini API 요청 제한 시간 (API가 허용하는 최솟값이 10초)
+GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10"))
+# 서버가 Gemini 응답을 기다리는 시간. 넘으면 기다리지 않고 대체 응답을 보낸다.
+# 백엔드가 AI 응답을 15초까지 기다리므로 챗봇(임베딩 + 답변 생성)도 그 안에 끝나게 한다.
+GEMINI_EMBED_BUDGET_SECONDS = float(os.getenv("GEMINI_EMBED_BUDGET_SECONDS", "3"))
+GEMINI_GENERATE_BUDGET_SECONDS = float(os.getenv("GEMINI_GENERATE_BUDGET_SECONDS", "8"))

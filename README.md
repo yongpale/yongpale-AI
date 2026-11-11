@@ -65,7 +65,16 @@ tests/
 | care_time | 하교 후 돌봄이 필요한 시간 |
 | children | 자녀 정보 (닉네임, 학년). 1명 이상 |
 
-백엔드 가구 정보 응답(`HouseholdResponse`)을 그대로 넘겨도 됩니다.
+백엔드 형식을 그대로 넘겨도 됩니다.
+
+**MatchProfile** (백엔드가 매칭·요약·돌봄 공백 호출에 쓰는 형식)
+```json
+{"guName": "기흥구", "dongName": "구갈동", "childCount": 2, "childGrades": ["초1", "유치6세"],
+ "dualIncome": true, "singleParent": false, "multiChild": false, "careTime": {"start": "13:00", "end": "18:00"}}
+```
+자녀 닉네임이 없으므로 `target_children`에는 "초1"처럼 학년이 들어갑니다.
+
+**HouseholdResponse** (가구 정보 조회 응답)
 
 | 백엔드 | AI |
 |---|---|
@@ -167,4 +176,6 @@ tests/
 - 서버는 `GEMINI_LITE_MODEL`(기본 `gemini-3.5-flash-lite`)로 맞춤 팁과 챗봇 답변을 만들고, 실패하면 대체 응답을 보냅니다.
 - 같은 질문·같은 프로필의 답변과 팁은 `data/cache/`에 저장해 다시 호출하지 않습니다.
 - 임베딩(`gemini-embedding-001`)은 무료 등급에서 분당 3만 토큰 한도가 있어 스크립트가 나눠서 보냅니다.
+- 백엔드가 AI 응답을 15초까지 기다리므로, 서버는 임베딩 3초·답변 생성 8초까지만 기다리고 넘으면 대체 응답을 보냅니다
+  (`GEMINI_EMBED_BUDGET_SECONDS`, `GEMINI_GENERATE_BUDGET_SECONDS`). 실측: 맞춤 팁 약 4초, 챗봇 약 6초.
 - `GEMINI_ENABLED=0`이면 Gemini를 호출하지 않습니다.
