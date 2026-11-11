@@ -4,6 +4,7 @@
 입력
   data/raw/yongin_dahamkke_centers.xlsx      다함께돌봄센터
   data/raw/yongin_jiyeok_child_centers.xlsx  지역아동센터
+  data/raw/facility_coordinates.csv          시설 좌표 (id, name, lat, lng). 백엔드 레포에서 주소로 지오코딩한 값
 
 출력
   data/processed/facilities.json
@@ -25,6 +26,7 @@ OUT_DIR = BASE_DIR / "data" / "processed"
 
 DAHAMKKE_FILE = RAW_DIR / "yongin_dahamkke_centers.xlsx"
 JIYEOK_FILE = RAW_DIR / "yongin_jiyeok_child_centers.xlsx"
+COORDINATES_FILE = RAW_DIR / "facility_coordinates.csv"
 
 # 주소에서 동 이름처럼 보이지만 건물 이름인 것들
 NOT_DONG = {"관리동", "공동시설동", "시설동"}
@@ -235,8 +237,20 @@ def to_flat_row(record):
     }
 
 
+def add_coordinates(facilities):
+    """좌표 파일이 있으면 id로 lat, lng를 채운다 (없으면 null 그대로)"""
+    if not COORDINATES_FILE.exists():
+        return
+    coords = pd.read_csv(COORDINATES_FILE, dtype={"id": str}).set_index("id")
+    for f in facilities:
+        if f["id"] in coords.index:
+            f["lat"] = float(coords.at[f["id"], "lat"])
+            f["lng"] = float(coords.at[f["id"], "lng"])
+
+
 def main():
     facilities = load_dahamkke() + load_jiyeok()
+    add_coordinates(facilities)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -249,6 +263,7 @@ def main():
     print(f"시설 {len(facilities)}곳 저장 완료")
     print(flat["type"].value_counts().to_string())
     print(f"동 정보 없음: {flat['dong'].isna().sum()}곳")
+    print(f"좌표 없음: {flat['lat'].isna().sum()}곳")
 
 
 if __name__ == "__main__":

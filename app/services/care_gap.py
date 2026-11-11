@@ -122,6 +122,8 @@ def brief(facility, period, cover=None):
         "dong": facility.get("dong"),
         "address": facility.get("address"),
         "phone": facility.get("phone"),
+        "lat": facility.get("lat"),
+        "lng": facility.get("lng"),
         "hours": time_range(*hours) if hours else None,
         "covers": time_range(*cover) if cover else None,
         "fee": facility.get("fee") or {},

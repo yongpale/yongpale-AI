@@ -268,6 +268,8 @@ class FacilityBrief(BaseModel):
     dong: Optional[str]
     address: Optional[str]
     phone: Optional[str]
+    lat: Optional[float] = Field(None, description="위도")
+    lng: Optional[float] = Field(None, description="경도")
     hours: Optional[TimeRange] = Field(None, description="해당 기간 운영시간. null = 정보 없음")
     covers: Optional[TimeRange] = Field(None, description="이 시설이 맡는 시간")
     fee: dict
