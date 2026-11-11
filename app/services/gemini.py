@@ -3,6 +3,8 @@
 import json
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from hashlib import sha256
 
 from app import config
@@ -11,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 _client = None
 _cache_lock = threading.Lock()
+_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="gemini")
+
+
+def _within(budget_seconds, fn, label):
+    """fn()을 budget_seconds 안에 끝내지 못하면 기다리지 않고 None (호출은 백그라운드에서 마저 끝남)"""
+    future = _executor.submit(fn)
+    try:
+        return future.result(timeout=budget_seconds)
+    except FutureTimeout:
+        logger.warning("%s 응답이 %.0f초를 넘어 대체 응답 사용", label, budget_seconds)
+        return None
+    except Exception as e:  # 한도 초과(429), 서버 과부하(503) 등
+        logger.warning("%s 실패: %s", label, str(e)[:200])
+        return None
 
 
 def _get_client():
@@ -21,7 +37,11 @@ def _get_client():
 
         _client = genai.Client(
             api_key=config.GEMINI_API_KEY,
-            http_options=types.HttpOptions(timeout=int(config.GEMINI_TIMEOUT_SECONDS * 1000)),
+            http_options=types.HttpOptions(
+                timeout=int(config.GEMINI_TIMEOUT_SECONDS * 1000),
+                # 자동 재시도를 하면 응답이 늦어지므로 한 번만 시도하고 실패하면 대체 응답
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
         )
     return _client
 
@@ -32,17 +52,15 @@ def generate_text(prompt, model=None, temperature=0.3):
         return None
     from google.genai import types
 
-    try:
+    def call():
         res = _get_client().models.generate_content(
             model=model or config.GEMINI_LITE_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(temperature=temperature),
         )
-        text = (res.text or "").strip()
-        return text or None
-    except Exception as e:  # 한도 초과(429), 서버 과부하(503), 시간 초과 등
-        logger.warning("Gemini 호출 실패: %s", str(e)[:200])
-        return None
+        return (res.text or "").strip() or None
+
+    return _within(config.GEMINI_GENERATE_BUDGET_SECONDS, call, "Gemini 생성")
 
 
 class FileCache:
@@ -87,16 +105,15 @@ def embed_query(text):
         return None
     from google.genai import types
 
-    try:
+    def call():
         res = _get_client().models.embed_content(
             model=config.GEMINI_EMBEDDING_MODEL,
             contents=[text],
             config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY", output_dimensionality=config.EMBEDDING_DIM),
         )
         return res.embeddings[0].values
-    except Exception as e:
-        logger.warning("임베딩 실패: %s", str(e)[:200])
-        return None
+
+    return _within(config.GEMINI_EMBED_BUDGET_SECONDS, call, "임베딩")
 
 
 def generate_json(prompt, schema, model=None, temperature=0.2):
@@ -105,7 +122,7 @@ def generate_json(prompt, schema, model=None, temperature=0.2):
         return None
     from google.genai import types
 
-    try:
+    def call():
         res = _get_client().models.generate_content(
             model=model or config.GEMINI_LITE_MODEL,
             contents=prompt,
@@ -114,6 +131,5 @@ def generate_json(prompt, schema, model=None, temperature=0.2):
             ),
         )
         return schema.model_validate_json(res.text)
-    except Exception as e:
-        logger.warning("Gemini 호출 실패: %s", str(e)[:200])
-        return None
+
+    return _within(config.GEMINI_GENERATE_BUDGET_SECONDS, call, "Gemini 생성")

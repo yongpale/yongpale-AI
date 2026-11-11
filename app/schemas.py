@@ -59,8 +59,11 @@ class Child(BaseModel):
 class Profile(BaseModel):
     """가족 정보 입력 화면(03-03)과 같은 항목. 소득·특수가구는 입력받지 않는다.
 
-    백엔드 가구 정보 응답(HouseholdResponse) 형식도 그대로 받는다:
-    region.guName/dongName, situations ["DUAL_INCOME", ...], children[].grade "초2", careNeedStartTime/EndTime
+    백엔드 형식도 그대로 받는다.
+    - MatchProfile (백엔드가 AI 호출에 쓰는 형식): guName, dongName, childCount, childGrades ["초1", "유치6세"],
+      dualIncome, singleParent, multiChild, careTime
+    - HouseholdResponse (가구 정보 조회 응답): region.guName/dongName, situations ["DUAL_INCOME", ...],
+      children[].grade "초2", careNeedStartTime/EndTime
     """
     gu: Optional[Gu] = Field(None, description="거주 구")
     dong: Optional[str] = Field(None, description="거주 읍·면·동", examples=["구갈동"])
@@ -87,6 +90,19 @@ class Profile(BaseModel):
         if not isinstance(data, dict):
             return data
         data = dict(data)
+        # MatchProfile (camelCase)
+        for camel, snake in (("guName", "gu"), ("dongName", "dong"), ("dualIncome", "dual_income"),
+                             ("singleParent", "single_parent"), ("multiChild", "multi_child"),
+                             ("careTime", "care_time")):
+            if camel in data:
+                value = data.pop(camel)
+                if value is not None:
+                    data.setdefault(snake, value)
+        grades = data.pop("childGrades", None)
+        data.pop("childCount", None)
+        if grades is not None and "children" not in data:
+            data["children"] = [{"grade": g} for g in grades]
+        # HouseholdResponse
         region = data.pop("region", None)
         if isinstance(region, dict):
             data.setdefault("gu", region.get("guName"))
