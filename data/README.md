@@ -5,6 +5,7 @@
 |---|---|---|---|
 | raw/yongin_dahamkke_centers.xlsx | 용인시 다함께돌봄센터 26곳 | 경기도 아동언제나돌봄 우리동네 돌봄자원 찾기 | 2026-10-29 |
 | raw/yongin_jiyeok_child_centers.xlsx | 용인시 지역아동센터 34곳 | 경기도 아동언제나돌봄 우리동네 돌봄자원 찾기 | 2026-10-29 |
+| raw/facility_coordinates.csv | 시설 60곳 좌표 (id, name, lat, lng) | 백엔드 레포 `facilities.csv`의 지오코딩 결과 | 2026-11-10 |
 
 ## 가공 방법
 ```bash
@@ -23,7 +24,7 @@ python scripts/preprocess_facilities.py
 | dong | string, null | 주소에서 추출한 읍·면·동 (도로명만 있으면 null) | 구갈동 |
 | address | string | 주소 원문 | |
 | phone | string | 연락처 | 031-281-2513 |
-| lat, lng | float, null | 좌표 (아직 비어 있음, 지오코딩 필요) | |
+| lat, lng | float, null | 좌표. `raw/facility_coordinates.csv`(백엔드 레포에서 주소로 지오코딩한 값)에서 채움 | 37.2748428, 127.1187785 |
 | age_min, age_max | int, null | 이용 가능 연령 | 6, 12 |
 | all_ages | bool | 연령 제한 없음 | false |
 | semester_open/close | "HH:MM", null | 학기 중 운영시간 (다함께돌봄은 정기돌봄 기준) | 10:00 / 19:00 |

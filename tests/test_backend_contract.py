@@ -98,6 +98,7 @@ def test_care_gap_request_from_backend():
             assert f["id"].startswith("YI")
             for key in ("name", "hours", "covers", "fee", "meal", "snack", "pickup"):
                 assert key in f
+            assert f["lat"] and f["lng"]
 
 
 def test_care_gap_vacation_with_care_time_override():
