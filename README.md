@@ -24,6 +24,25 @@ uvicorn app.main:app --reload
 - API 문서(요청·응답 예시, 직접 호출해 보기): http://localhost:8000/docs
 - 테스트: `python3 -m pytest` (Gemini를 호출하지 않음)
 
+## 배포
+
+백엔드는 AI 서버를 `AI_SERVER_URL`(기본 `http://localhost:8000`)로 호출하고 응답을 15초까지 기다립니다.
+
+```bash
+git clone https://github.com/yongpale/yongpale-AI.git && cd yongpale-AI
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env && chmod 600 .env    # GEMINI_API_KEY 등 채우기 (.env는 저장소에 없음)
+nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 > ai-server.log 2>&1 &
+curl localhost:8000/health                # gemini_enabled가 true인지 확인
+```
+
+- **외부에 열지 않기**: AI 서버에는 인증이 없습니다. 백엔드와 같은 서버면 `--host 127.0.0.1`로 띄우고,
+  다른 서버면 방화벽(보안 그룹)에서 백엔드 서버만 8000 포트에 접근하게 합니다.
+- **워커 1개**: 생성 결과 캐시(`data/cache/`)를 파일로 저장하므로 `--workers 1`로 띄웁니다.
+- **키가 없거나 Gemini 한도를 넘으면** 서버는 멈추지 않고 대체 응답을 보냅니다. `/health`의 `gemini_enabled`, 로그의 "Gemini 생성 실패"로 확인합니다.
+- **업데이트**: `git pull` 후 uvicorn을 다시 시작합니다. 요청·응답 형식이 같으면 백엔드는 다시 배포하지 않아도 됩니다.
+
 ## 구조
 
 ```
