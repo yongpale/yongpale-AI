@@ -80,3 +80,24 @@ def test_chat_suggestions_skip_same_question(monkeypatch):
 
 def test_chat_validation():
     assert client.post("/ai/chat", json={"question": ""}).status_code == 422
+
+
+def test_chat_guide_source_is_backend_compatible(monkeypatch):
+    # 안내 문서를 근거로 쓰면 출처는 policy/facility 종류에 id null, 바로가기는 만들지 않는다
+    from app.services import documents, retrieval
+
+    guide = next(d for d in documents.all_documents() if d["id"] == "guide:facility-type-다함께돌봄센터")
+    monkeypatch.setattr(retrieval, "search", lambda q, top_k=6: ([(guide, 0.9)], "embedding"))
+    fake_answer(monkeypatch, used_doc_ids=[guide["id"]])
+    body = client.post("/ai/chat", json={"question": "다함께돌봄센터가 뭐예요?", "profile": PROFILE}).json()
+    assert body["grounded"] is True
+    guide = next(s for s in body["sources"] if s["title"] == "다함께돌봄센터 안내")
+    assert guide["type"] == "facility" and guide["id"] is None
+    assert "아동복지법" in guide["name"]
+    assert body["related_facilities"] == [] and body["related_policies"] == []
+
+
+def test_keyword_fallback_blocks_out_of_region_question():
+    # Gemini를 못 쓸 때(키워드 검색)도 데이터에 없는 지역 질문은 근거 없음
+    body = client.post("/ai/chat", json={"question": "서울 강남구 돌봄센터 알려줘"}).json()
+    assert body["grounded"] is False

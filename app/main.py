@@ -26,8 +26,9 @@ from app.services import care_gap, chat, matching, summary
 
 logging.basicConfig(level=logging.INFO)
 # Gemini 요청마다 찍히는 통신 로그는 줄인다
-for name in ("httpx", "google_genai"):
-    logging.getLogger(name).setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+# 응답에 텍스트 외 부분(thought_signature)이 있을 때마다 나오는 안내 경고는 숨긴다 (실패 로그는 app.services.gemini에서 남김)
+logging.getLogger("google_genai").setLevel(logging.ERROR)
 
 app = FastAPI(
     title="아이케어 용인 AI 서버",

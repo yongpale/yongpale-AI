@@ -331,7 +331,7 @@ class ChatItem(BaseModel):
 
 class ChatSource(BaseModel):
     type: Literal["policy", "facility"]
-    id: str
+    id: Optional[str] = Field(None, description="정부24 서비스ID 또는 시설 id. 여러 정책·시설을 묶은 안내 문서면 null")
     title: str = Field(..., description="정책명 또는 시설명")
     name: Optional[str] = Field(None, description="출처 기관·데이터 이름")
     url: Optional[str] = None
