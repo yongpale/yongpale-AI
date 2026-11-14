@@ -74,6 +74,12 @@ def load_policy_summaries():
 
 
 @lru_cache()
+def load_guides():
+    """챗봇 안내 문서 (guides.json, scripts/build_guides.py). 없으면 빈 목록"""
+    return _read("guides.json", default=[])
+
+
+@lru_cache()
 def load_embeddings():
     """챗봇 검색용 임베딩 (embeddings.json). 없으면 빈 dict → 키워드 검색으로 대체"""
     return _read("embeddings.json", default={})
@@ -82,5 +88,5 @@ def load_embeddings():
 def clear_cache():
     """데이터 파일을 바꾼 뒤 서버를 끄지 않고 다시 읽을 때"""
     for fn in (load_policies, load_policy_map, load_facilities, load_childcare_documents, load_policy_summaries,
-               load_embeddings):
+               load_embeddings, load_guides):
         fn.cache_clear()

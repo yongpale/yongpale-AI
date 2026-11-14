@@ -1,4 +1,4 @@
-"""검색(RAG)용 문서: 정책 하나 = 문서 하나, 시설 하나 = 문서 하나
+"""검색(RAG)용 문서: 정책 하나 = 문서 하나, 시설 하나 = 문서 하나, 안내 문서(guides.json) 하나 = 문서 하나
 
 임베딩 생성(scripts/build_embeddings.py)과 챗봇 답변 근거(app/services/chat.py)가 같은 문서를 쓴다.
 시설 데이터의 null은 '정보 없음'이다. 문서에도 '정보 없음'으로 적어서 '운영 안 함'으로 읽히지 않게 한다.
@@ -9,6 +9,7 @@ from hashlib import sha256
 from app import data_loader
 
 MAX_TEXT = 1800
+GUIDE_MAX_TEXT = 3000
 NO_INFO = "정보 없음"
 POLICY_SOURCE_NAME = "행정안전부 대한민국 공공서비스(혜택) 정보"
 SUMMARY_TITLES = {"eligibility": "신청 자격", "benefits": "지원 혜택", "documents": "필요 서류", "period": "신청 기간"}
@@ -121,10 +122,24 @@ def facility_doc(f):
     }
 
 
+def guide_doc(g):
+    """안내 문서 (정책·시설을 묶은 요약, 법령 정의). 출처 종류는 백엔드가 아는 policy / facility로 보낸다"""
+    return {
+        "id": f"guide:{g['id']}",
+        "type": "guide",
+        "source_type": g["source_type"],
+        "ref_id": None,
+        "title": g["title"],
+        "text": g["text"][:GUIDE_MAX_TEXT],
+        "source": {"name": g["source_name"], "url": g.get("source_url"), "updated_at": g.get("updated_at")},
+    }
+
+
 def all_documents():
     summaries = data_loader.load_policy_summaries()
     docs = [policy_doc(p, summaries.get(p["id"])) for p in data_loader.load_policies()]
     docs += [facility_doc(f) for f in data_loader.load_facilities()]
+    docs += [guide_doc(g) for g in data_loader.load_guides()]
     return docs
 
 

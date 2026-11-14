@@ -19,7 +19,7 @@ from app.services.regions import same_dong
 TOP_K = 6
 HISTORY_TURNS = 4
 # 키워드 검색일 때 이 점수보다 낮으면 관련 문서가 없다고 본다
-KEYWORD_MIN_SCORE = 0.2
+KEYWORD_MIN_SCORE = 0.3
 NO_GROUND_INTRO = (
     "확인되지 않은 정보예요.\n"
     "등록된 정책·시설 자료에서 근거를 찾지 못했어요.\n"
@@ -87,7 +87,9 @@ def _rerank(results, profile):
         return results
     adjusted = []
     for doc, score in results:
-        if doc["type"] == "facility":
+        if doc["type"] == "guide":
+            pass
+        elif doc["type"] == "facility":
             f = next((x for x in data_loader.load_facilities() if x["id"] == doc["ref_id"]), None)
             if f and profile.dong and same_dong(f.get("dong"), profile.dong):
                 score += 0.03
@@ -148,13 +150,16 @@ def _sources_and_links(docs, profile):
     sources, policies, facilities = [], [], []
     for d in docs:
         sources.append({
-            "type": d["type"],
+            "type": d.get("source_type", d["type"]),
             "id": d["ref_id"],
             "title": d["title"],
             "name": d["source"]["name"],
             "url": d["source"]["url"],
             "updated_at": d["source"]["updated_at"],
         })
+        if d["type"] == "guide":
+            # 안내 문서는 출처만 표시하고 바로가기는 만들지 않는다
+            continue
         if d["type"] == "policy":
             status = None
             if profile is not None:
@@ -171,7 +176,8 @@ def _suggestions(docs, question=""):
     if not docs:
         candidates = DEFAULT_SUGGESTIONS
     else:
-        candidates = POLICY_SUGGESTIONS if docs[0]["type"] == "policy" else FACILITY_SUGGESTIONS
+        kind = docs[0].get("source_type", docs[0]["type"])
+        candidates = POLICY_SUGGESTIONS if kind == "policy" else FACILITY_SUGGESTIONS
     asked = question.replace(" ", "").rstrip("?")
     return [q for q in candidates if q.replace(" ", "").rstrip("?") != asked][:2]
 
@@ -196,7 +202,9 @@ def _fallback(answer_id, profile, docs, question):
     summaries = data_loader.load_policy_summaries()
     items = []
     for d in docs[:3]:
-        if d["type"] == "policy":
+        if d["type"] == "guide":
+            text = next((line for line in d["text"].split("\n") if line and not line.startswith("[")), "")
+        elif d["type"] == "policy":
             s = summaries.get(d["ref_id"])
             text = s["eligibility"]["text"] if s else (data_loader.get_policy(d["ref_id"]) or {}).get("summary") or ""
         else:

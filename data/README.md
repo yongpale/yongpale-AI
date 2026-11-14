@@ -5,6 +5,7 @@
 |---|---|---|---|
 | raw/yongin_dahamkke_centers.xlsx | 용인시 다함께돌봄센터 26곳 | 경기도 아동언제나돌봄 우리동네 돌봄자원 찾기 | 2026-10-29 |
 | raw/yongin_jiyeok_child_centers.xlsx | 용인시 지역아동센터 34곳 | 경기도 아동언제나돌봄 우리동네 돌봄자원 찾기 | 2026-10-29 |
+| raw/official_guides.json | 다함께돌봄센터·지역아동센터 법령 정의 (아동복지법 제44조의2, 제52조 원문) | 국가법령정보센터 | 2026-11-14 |
 | raw/facility_coordinates.csv | 시설 60곳 좌표 (id, name, lat, lng) | 백엔드 레포 `facilities.csv`의 지오코딩 결과 | 2026-11-10 |
 
 ## 가공 방법
